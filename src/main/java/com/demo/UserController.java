@@ -86,4 +86,19 @@ public class UserController {
             System.out.println(LocalDateTime.now() + " - " + message);
         }
     }
+
+    // Inner class for User
+    public static class User {
+        private final int id;
+        private String name;
+        private String email;       
+        private boolean active;
+
+        public User(int id, String name, String email, boolean active) {
+            this.id = id;
+            this.name = name;
+            this.email = email;
+            this.active = active;
+        }
+    }
 }

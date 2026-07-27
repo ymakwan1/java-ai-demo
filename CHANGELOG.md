@@ -2,6 +2,23 @@
 
 ## 2026-07-27
 
+**Commit:** da378ff
+
+**Files changed:**
+
+## Added
+- Added methods: getRecentlyActiveUsers, hasEmailConflict, toggleUserStatus
+- Introduced new behavior such as creation, lookup, filtering, pagination, or state-management flows.
+
+## Changed
+- Improved concurrency, collection handling, or execution flow for better reliability.
+
+## Fixed
+- Strengthened validation and error handling around edge cases and invalid input.
+# CHANGELOG
+
+## 2026-07-27
+
 **Commit:** 4e4e33c
 
 **Files changed:**

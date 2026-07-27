@@ -1,0 +1,6 @@
+<project xmlns="http://apache.org">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.demo</groupId>
+    <artifactId>java-ai-demo</artifactId>
+    <version>1.0.0</version>
+</project>

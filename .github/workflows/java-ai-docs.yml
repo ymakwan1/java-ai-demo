@@ -1,0 +1,70 @@
+name: Java AI Documentation Agent
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+jobs:
+  generate-java-docs:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Open Source CLI tools
+        run: |
+          pip install llm
+          pip install llm-groq
+
+      - name: Extract Code Changes (Java Optimized)
+        run: |
+          git diff HEAD~1 HEAD -- '*.java' 'pom.xml' '*.gradle' ':!target/*' ':!.gradle/*' > java_changes.diff
+
+      - name: Run Java AI Agent
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }} 
+        run: |
+          DIFF_CONTENT=$(cat java_changes.diff | head -c 25000)
+          
+          llm -m groq-llama3-8b "You are an expert Java Architect. 
+          Review the following git diff of a Java project. 
+          Write a concise, bulleted update for our technical CHANGELOG.md file.
+          Format the output clearly as a markdown bulleted list.
+          
+          Follow these Java rules:
+          1. Highlight additions of new classes, methods, or annotations.
+          2. Note any added dependencies or library upgrades.
+          3. Ignore formatting adjustments or package imports.
+          
+          Git Diff:
+          $DIFF_CONTENT" > ai_output.txt
+
+      - name: Update CHANGELOG
+        run: |
+          touch CHANGELOG.md
+          echo -e "## PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}\n" > new_changelog.md
+          cat ai_output.txt >> new_changelog.md
+          echo -e "\n\n$(cat CHANGELOG.md)" >> new_changelog.md
+          mv new_changelog.md CHANGELOG.md
+
+      - name: Commit and Push Docs
+        run: |
+          git config --global user.name "Java-AI-Agent"
+          git config --global user.email "ai-agent@github.com"
+          git add CHANGELOG.md
+          git commit -m "docs: Java AI auto-generated changelog for PR #${{ github.event.pull_request.number }}"
+          git push origin main

@@ -12,4 +12,9 @@ public class UserController {
     public void createUser(String name) {
         System.out.println("Saved user: " + name);
     }
+
+    // @GetMapping("/api/users/{id}")
+    public String getUserById(int id) {
+        return "User with ID: " + id;
+    }
 }

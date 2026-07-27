@@ -1,15 +1,12 @@
 name: Java AI Documentation Agent
 
 on:
-  pull_request:
+  push:
     branches:
       - main
-    types:
-      - closed
 
 jobs:
   generate-java-docs:
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
 
     permissions:
@@ -19,23 +16,29 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
 
       - name: Extract Java Changes
+        id: diff
         run: |
-          git diff \
-            ${{ github.event.pull_request.base.sha }} \
-            ${{ github.event.pull_request.merge_commit_sha }} \
+          git diff HEAD~1 HEAD \
             -- '*.java' 'pom.xml' '*.gradle' \
             ':!target/*' ':!.gradle/*' \
             > java_changes.diff
 
+          echo "===== Diff Preview ====="
+          head -40 java_changes.diff
+
           if [ ! -s java_changes.diff ]; then
             echo "No Java changes detected."
-            exit 0
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Java changes detected."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Generate AI Changelog
+        if: steps.diff.outputs.has_changes == 'true'
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
@@ -45,6 +48,7 @@ jobs:
             --arg diff "$DIFF_CONTENT" \
             '{
               model: "llama-3.3-70b-versatile",
+              temperature: 0.2,
               messages: [
                 {
                   role: "system",
@@ -53,10 +57,9 @@ jobs:
                 {
                   role: "user",
                   content:
-                    "Review this git diff and produce a concise markdown changelog.\n\nRules:\n- Mention new classes.\n- Mention new methods.\n- Mention dependency updates.\n- Ignore formatting-only changes.\n- Output only markdown bullet points.\n\nGit Diff:\n\($diff)"
+                    "Review the following Java git diff and generate a concise CHANGELOG.\n\nRules:\n- Mention newly added classes.\n- Mention newly added methods.\n- Mention dependency updates.\n- Ignore formatting-only changes.\n- Output ONLY markdown bullet points.\n\nGit Diff:\n\($diff)"
                 }
-              ],
-              temperature: 0.2
+              ]
             }' > request.json
 
           curl -s https://api.groq.com/openai/v1/chat/completions \
@@ -65,14 +68,18 @@ jobs:
             -d @request.json \
             | jq -r '.choices[0].message.content' > ai_output.txt
 
+          echo "===== AI Output ====="
           cat ai_output.txt
 
       - name: Update CHANGELOG
+        if: steps.diff.outputs.has_changes == 'true'
         run: |
           touch CHANGELOG.md
 
           {
-            echo "## PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}"
+            echo "# CHANGELOG"
+            echo
+            echo "## $(date +'%Y-%m-%d')"
             echo
             cat ai_output.txt
             echo
@@ -81,17 +88,18 @@ jobs:
 
           mv new_changelog.md CHANGELOG.md
 
-      - name: Commit and Push
+      - name: Commit CHANGELOG
+        if: steps.diff.outputs.has_changes == 'true'
         run: |
-          git config user.name "Java-AI-Agent"
-          git config user.email "ai-agent@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add CHANGELOG.md
 
           if git diff --cached --quiet; then
-            echo "Nothing changed."
+            echo "No changelog updates."
             exit 0
           fi
 
-          git commit -m "docs: auto-update changelog for PR #${{ github.event.pull_request.number }}"
+          git commit -m "docs: auto-update CHANGELOG"
           git push

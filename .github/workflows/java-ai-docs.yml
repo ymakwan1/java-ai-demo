@@ -44,74 +44,95 @@ jobs:
         run: |
           DIFF_CONTENT=$(head -c 30000 java_changes.diff)
 
-          jq -n \
-            --arg diff "$DIFF_CONTENT" \
-            '{
-              model: "llama-3.3-70b-versatile",
-              temperature: 0.1,
-              messages: [
-                {
-                  role: "system",
-                  content: "You are a Senior Java Software Architect reviewing enterprise pull requests."
-                },
-                {
-                  role: "user",
-                  content:
-                    "Review the following Git diff and generate a professional CHANGELOG in Markdown.\n\n\
-                     Analyze what actually changed instead of simply listing modified files.\n\n\
-                     Organize the output into these sections only when applicable:\n\n\
-                     ## Added\n\
-                     - New classes\n\
-                     - New interfaces\n\
-                     - New APIs/endpoints\n\
-                     - New methods\n\
-                     - New annotations\n\
-                     - New dependencies\n\
-                     - New configuration\n\n\
-                     ## Changed\n\
-                     - Business logic\n\
-                     - Algorithms\n\
-                     - Validation rules\n\
-                     - API behavior\n\
-                     - Database logic\n\
-                     - Concurrency/thread safety\n\
-                     - Performance optimizations\n\
-                     - Refactoring\n\
-                     - Architectural improvements\n\n\
-                     ## Removed\n\
-                     - Deleted methods\n\
-                     - Deleted classes\n\
-                     - Removed APIs\n\
-                     - Removed dependencies\n\
-                     - Deprecated functionality\n\n\
-                     ## Fixed\n\
-                     - Bug fixes\n\
-                     - Exception handling\n\
-                     - Null safety\n\
-                     - Edge cases\n\
-                     - Security improvements\n\n\
-                     Ignore:\n\
-                     - Imports\n\
-                     - Package declarations\n\
-                     - Formatting\n\
-                     - Whitespace\n\
-                     - Comments\n\
-                     - Variable renaming unless behavior changes\n\n\
-                     Write concise, meaningful bullet points that explain the intent of the code changes.\n\
-                     Output only Markdown.\n\n\
-                     Git Diff:\n\n\($diff)"
-                }
-              ]
-            }' > request.json
+          PROMPT=$(cat <<EOF
+          You are a Senior Java Software Architect reviewing enterprise pull requests.
 
-          curl -s https://api.groq.com/openai/v1/chat/completions \
-            -H "Authorization: Bearer $GROQ_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d @request.json \
-            | jq -r '.choices[0].message.content' > ai_output.txt
+          Review the following Git diff and generate a professional CHANGELOG in Markdown.
 
-          echo "===== AI Generated Changelog ====="
-          cat ai_output.txt
+          Analyze the intent of the changes instead of simply listing modified files.
+
+          Only include sections that have content.
+
+          ## Added
+          - New classes
+          - New interfaces
+          - New methods
+          - New APIs/endpoints
+          - New annotations
+          - New dependencies
+          - New configuration
+
+          ## Changed
+          - Business logic
+          - Algorithms
+          - Validation rules
+          - API behavior
+          - Database logic
+          - Performance improvements
+          - Refactoring
+          - Architectural improvements
+          - Concurrency/thread safety
+
+          ## Removed
+          - Deleted methods
+          - Deleted classes
+          - Removed APIs
+          - Removed dependencies
+          - Deprecated functionality
+
+          ## Fixed
+          - Bug fixes
+          - Exception handling
+          - Null safety
+          - Security improvements
+          - Edge cases
+
+            Ignore:
+            - Imports
+            - Package declarations
+            - Formatting
+            - Whitespace
+            - Comments
+            - Variable renames unless behavior changes
+
+            Output ONLY Markdown bullet points.
+
+            Git Diff:
+
+            $DIFF_CONTENT
+            EOF
+            )
+
+                jq -n \
+                  --arg prompt "$PROMPT" \
+                  '{
+                    model: "llama-3.3-70b-versatile",
+                    temperature: 0.1,
+                    messages: [
+                      {
+                        role: "system",
+                        content: "You are a Senior Java Software Architect."
+                      },
+                      {
+                        role: "user",
+                        content: $prompt
+                      }
+                    ]
+                  }' > request.json
+
+                echo "===== Request ====="
+                cat request.json
+
+                curl -s https://api.groq.com/openai/v1/chat/completions \
+                  -H "Authorization: Bearer $GROQ_API_KEY" \
+                  -H "Content-Type: application/json" \
+                  -d @request.json \
+                  | tee response.json
+
+                jq -r '.choices[0].message.content' response.json > ai_output.txt
+
+                echo "===== AI Output ====="
+                cat ai_output.txt
 
       - name: Update CHANGELOG
         if: steps.diff.outputs.has_changes == 'true'

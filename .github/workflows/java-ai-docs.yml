@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   generate-java-docs:
@@ -16,20 +20,40 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Extract Java Changes
         id: diff
+        shell: bash
         run: |
-          git diff HEAD~1 HEAD \
-            -- '*.java' 'pom.xml' '*.gradle' \
-            ':!target/*' ':!.gradle/*' \
-            > java_changes.diff
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            git diff "$BASE_SHA" "$HEAD_SHA" \
+              -- '*.java' 'pom.xml' '*.gradle' \
+              ':!target/*' ':!.gradle/*' \
+              > java_changes.diff || true
+          elif [[ -n "${{ github.event.before }}" ]] && [[ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            git diff "${{ github.event.before }}" "${{ github.sha }}" \
+              -- '*.java' 'pom.xml' '*.gradle' \
+              ':!target/*' ':!.gradle/*' \
+              > java_changes.diff || true
+          else
+            git diff HEAD~1 HEAD \
+              -- '*.java' 'pom.xml' '*.gradle' \
+              ':!target/*' ':!.gradle/*' \
+              > java_changes.diff || true
+          fi
+
+          git diff --stat -- '*.java' 'pom.xml' '*.gradle' ':!target/*' ':!.gradle/*' > change_stats.txt || true
+          git diff --name-only -- '*.java' 'pom.xml' '*.gradle' ':!target/*' ':!.gradle/*' > changed_files.txt || true
 
           echo "===== Git Diff Preview ====="
-          head -50 java_changes.diff
+          head -80 java_changes.diff || true
 
-          if [ ! -s java_changes.diff ]; then
+          if [[ ! -s java_changes.diff ]]; then
             echo "No Java changes detected."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
@@ -37,106 +61,122 @@ jobs:
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
+          echo "commit_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Generate AI Changelog
         if: steps.diff.outputs.has_changes == 'true'
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        shell: bash
         run: |
-          DIFF_CONTENT=$(head -c 30000 java_changes.diff)
+          set -euo pipefail
 
-          PROMPT=$(cat <<EOF
-          You are a Senior Java Software Architect reviewing enterprise pull requests.
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import urllib.request
+          from pathlib import Path
 
-          Review the following Git diff and generate a professional CHANGELOG in Markdown.
+          diff_path = Path("java_changes.diff")
+          diff_text = diff_path.read_text(encoding="utf-8", errors="ignore")
+          diff_text = diff_text[:60000]
 
-          Analyze the intent of the changes instead of simply listing modified files.
+          def sanitize(text: str) -> str:
+              return re.sub(r"\s+", " ", text).strip()
 
-          Only include sections that have content.
+          def build_fallback_markdown() -> str:
+              added = []
+              changed = []
+              removed = []
+              fixed = []
 
-          ## Added
-          - New classes
-          - New interfaces
-          - New methods
-          - New APIs/endpoints
-          - New annotations
-          - New dependencies
-          - New configuration
+              if re.search(r"^\+.*\b(class|interface|enum|record)\b", diff_text, flags=re.MULTILINE):
+                  added.append("- Added new Java types or API surface to support the requested behavior change.")
+              if re.search(r"^\+.*\b(create|update|deactivate|validate|fetch|log|audit)\b", diff_text, flags=re.MULTILINE | re.IGNORECASE):
+                  changed.append("- Updated runtime behavior and business logic for the affected Java components.")
+              if re.search(r"\b(exception|error|invalid|null|guard|validate|throw)\b", diff_text, flags=re.IGNORECASE):
+                  fixed.append("- Strengthened validation and error handling around edge cases and invalid input.")
+              if re.search(r"^-.+\b(class|interface|enum|record)\b", diff_text, flags=re.MULTILINE):
+                  removed.append("- Removed deprecated or obsolete logic paths from the implementation.")
+              if re.search(r"\b(concurrent|thread|lock|stream|comparator|cache|async)\b", diff_text, flags=re.IGNORECASE):
+                  changed.append("- Improved concurrency, collection handling, or execution flow for better reliability.")
+              if not added and not changed and not removed and not fixed:
+                  changed.append("- Updated Java implementation to support the latest behavior and maintenance changes.")
 
-          ## Changed
-          - Business logic
-          - Algorithms
-          - Validation rules
-          - API behavior
-          - Database logic
-          - Performance improvements
-          - Refactoring
-          - Architectural improvements
-          - Concurrency/thread safety
+              sections = []
+              for heading, items in (("Added", added), ("Changed", changed), ("Removed", removed), ("Fixed", fixed)):
+                  if items:
+                      section_lines = [f"## {heading}"] + items
+                      sections.append("\n".join(section_lines))
 
-          ## Removed
-          - Deleted methods
-          - Deleted classes
-          - Removed APIs
-          - Removed dependencies
-          - Deprecated functionality
+              if not sections:
+                  sections = ["## Changed\n- Updated Java implementation to support the latest behavior and maintenance changes."]
 
-          ## Fixed
-          - Bug fixes
-          - Exception handling
-          - Null safety
-          - Security improvements
-          - Edge cases
+              return "\n\n".join(sections)
 
-          Ignore:
-          - Imports
-          - Package declarations
-          - Formatting
-          - Whitespace
-          - Comments
-          - Variable renames unless behavior changes
+          fallback = build_fallback_markdown()
+          Path("ai_output.txt").write_text(fallback, encoding="utf-8")
 
-          Output ONLY Markdown bullet points.
+          api_key = os.environ.get("GROQ_API_KEY", "").strip()
+          if api_key:
+              diff_preview = diff_text[:30000]
+              prompt = f"""You are a Senior Java Software Architect reviewing enterprise changes.
 
-          Git Diff:
+              Review the following git diff and generate a concise but professional Markdown changelog.
+              Only include sections that have content. Prefer actionable summaries over file-by-file lists.
 
-          $DIFF_CONTENT
-          EOF
-          )
+              Output ONLY Markdown content with headings and bullet points.
 
-          jq -n \
-            --arg prompt "$PROMPT" \
-            '{
-              model: "llama-3.3-70b-versatile",
-              temperature: 0.1,
-              messages: [
-                {
-                  role: "system",
-                  content: "You are a Senior Java Software Architect."
-                },
-                {
-                  role: "user",
-                  content: $prompt
-                }
-              ]
-            }' > request.json
+              Git diff:
 
-          echo "===== Request ====="
-          cat request.json
+              {diff_preview}
+              """
 
-          curl -s https://api.groq.com/openai/v1/chat/completions \
-            -H "Authorization: Bearer $GROQ_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d @request.json \
-            | tee response.json
+              payload = {
+                  "model": "llama-3.3-70b-versatile",
+                  "temperature": 0.1,
+                  "messages": [
+                      {"role": "system", "content": "You are a Senior Java Software Architect."},
+                      {"role": "user", "content": prompt},
+                  ],
+              }
 
-          jq -r '.choices[0].message.content' response.json > ai_output.txt
+              request = urllib.request.Request(
+                  "https://api.groq.com/openai/v1/chat/completions",
+                  data=json.dumps(payload).encode("utf-8"),
+                  headers={
+                      "Authorization": f"Bearer {api_key}",
+                      "Content-Type": "application/json",
+                  },
+                  method="POST",
+              )
 
-          echo "===== AI Output ====="
-          cat ai_output.txt
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      data = json.loads(response.read().decode("utf-8"))
+                      content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                      if content and content.strip():
+                          cleaned = sanitize(content)
+                          if cleaned.startswith("##") or cleaned.startswith("-"):
+                              Path("ai_output.txt").write_text(cleaned, encoding="utf-8")
+                              Path("ai_source.txt").write_text("groq", encoding="utf-8")
+              except Exception as exc:
+                  Path("ai_source.txt").write_text(f"fallback:{exc}", encoding="utf-8")
+          else:
+              Path("ai_source.txt").write_text("fallback:no-api-key", encoding="utf-8")
+
+          print("===== Generated Changelog =====")
+          print(Path("ai_output.txt").read_text(encoding="utf-8"))
+          PY
 
       - name: Update CHANGELOG
         if: steps.diff.outputs.has_changes == 'true'
+        shell: bash
         run: |
+          set -euo pipefail
           touch CHANGELOG.md
 
           {
@@ -146,6 +186,11 @@ jobs:
             echo
             echo "**Commit:** $(git rev-parse --short HEAD)"
             echo
+            echo "**Files changed:**"
+            if [[ -f changed_files.txt ]]; then
+              sed 's#^#- #' changed_files.txt || true
+            fi
+            echo
             cat ai_output.txt
             echo
             cat CHANGELOG.md
@@ -153,9 +198,20 @@ jobs:
 
           mv new_changelog.md CHANGELOG.md
 
-      - name: Commit CHANGELOG
+      - name: Upload Changelog Preview
         if: steps.diff.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog-preview
+          path: |
+            CHANGELOG.md
+            ai_output.txt
+
+      - name: Commit CHANGELOG
+        if: steps.diff.outputs.has_changes == 'true' && github.event_name != 'pull_request'
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 

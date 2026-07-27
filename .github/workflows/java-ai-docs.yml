@@ -87,52 +87,52 @@ jobs:
           - Security improvements
           - Edge cases
 
-            Ignore:
-            - Imports
-            - Package declarations
-            - Formatting
-            - Whitespace
-            - Comments
-            - Variable renames unless behavior changes
+          Ignore:
+          - Imports
+          - Package declarations
+          - Formatting
+          - Whitespace
+          - Comments
+          - Variable renames unless behavior changes
 
-            Output ONLY Markdown bullet points.
+          Output ONLY Markdown bullet points.
 
-            Git Diff:
+          Git Diff:
 
-            $DIFF_CONTENT
-            EOF
-            )
+          $DIFF_CONTENT
+          EOF
+          )
 
-                jq -n \
-                  --arg prompt "$PROMPT" \
-                  '{
-                    model: "llama-3.3-70b-versatile",
-                    temperature: 0.1,
-                    messages: [
-                      {
-                        role: "system",
-                        content: "You are a Senior Java Software Architect."
-                      },
-                      {
-                        role: "user",
-                        content: $prompt
-                      }
-                    ]
-                  }' > request.json
+          jq -n \
+            --arg prompt "$PROMPT" \
+            '{
+              model: "llama-3.3-70b-versatile",
+              temperature: 0.1,
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a Senior Java Software Architect."
+                },
+                {
+                  role: "user",
+                  content: $prompt
+                }
+              ]
+            }' > request.json
 
-                echo "===== Request ====="
-                cat request.json
+          echo "===== Request ====="
+          cat request.json
 
-                curl -s https://api.groq.com/openai/v1/chat/completions \
-                  -H "Authorization: Bearer $GROQ_API_KEY" \
-                  -H "Content-Type: application/json" \
-                  -d @request.json \
-                  | tee response.json
+          curl -s https://api.groq.com/openai/v1/chat/completions \
+            -H "Authorization: Bearer $GROQ_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d @request.json \
+            | tee response.json
 
-                jq -r '.choices[0].message.content' response.json > ai_output.txt
+          jq -r '.choices[0].message.content' response.json > ai_output.txt
 
-                echo "===== AI Output ====="
-                cat ai_output.txt
+          echo "===== AI Output ====="
+          cat ai_output.txt
 
       - name: Update CHANGELOG
         if: steps.diff.outputs.has_changes == 'true'

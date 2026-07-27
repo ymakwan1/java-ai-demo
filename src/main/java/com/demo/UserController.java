@@ -78,4 +78,12 @@ public class UserController {
             throw new IllegalArgumentException("Invalid email");
         }
     }
+
+    // Inner class for auditing
+    private static class AuditService {
+        
+        public void log(String message) {
+            System.out.println(LocalDateTime.now() + " - " + message);
+        }
+    }
 }

@@ -25,46 +25,44 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Open Source CLI tools
+      - name: Install CLI
         run: |
-          pip install llm
-          pip install llm-groq
+          python -m pip install --upgrade pip
+          pip install --upgrade llm llm-groq
 
-      - name: Extract Code Changes (Java Optimized)
+      - name: Show available models
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          git diff HEAD~1 HEAD -- '*.java' 'pom.xml' '*.gradle' ':!target/*' ':!.gradle/*' > java_changes.diff
+          llm plugins
+          llm models
 
       - name: Run Java AI Agent
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }} 
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          DIFF_CONTENT=$(cat java_changes.diff | head -c 25000)
-          
-          llm -m groq/llama-3.1-8b-instant "You are an expert Java Architect. 
-          Review the following git diff of a Java project. 
-          Write a concise, bulleted update for our technical CHANGELOG.md file.
-          Format the output clearly as a markdown bulleted list.
-          
-          Follow these Java rules:
-          1. Highlight additions of new classes, methods, or annotations.
-          2. Note any added dependencies or library upgrades.
-          3. Ignore formatting adjustments or package imports.
-          
-          Git Diff:
-          $DIFF_CONTENT" > ai_output.txt
+          DIFF_CONTENT=$(head -c 25000 java_changes.diff)
 
-      - name: Update CHANGELOG
-        run: |
-          touch CHANGELOG.md
-          echo -e "## PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}\n" > new_changelog.md
-          cat ai_output.txt >> new_changelog.md
-          echo -e "\n\n$(cat CHANGELOG.md)" >> new_changelog.md
-          mv new_changelog.md CHANGELOG.md
+          llm -m groq/llama-3.1-8b-instant "
+          You are an expert Java Architect.
+          Review the following git diff of a Java project.
+          Write a concise markdown changelog.
 
-      - name: Commit and Push Docs
-        run: |
-          git config --global user.name "Java-AI-Agent"
-          git config --global user.email "ai-agent@github.com"
-          git add CHANGELOG.md
-          git commit -m "docs: Java AI auto-generated changelog for PR #${{ github.event.pull_request.number }}"
-          git push origin main
+          $DIFF_CONTENT
+          " > ai_output.txt
+
+          - name: Update CHANGELOG
+            run: |
+              touch CHANGELOG.md
+              echo -e "## PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}\n" > new_changelog.md
+              cat ai_output.txt >> new_changelog.md
+              echo -e "\n\n$(cat CHANGELOG.md)" >> new_changelog.md
+              mv new_changelog.md CHANGELOG.md
+
+          - name: Commit and Push Docs
+            run: |
+              git config --global user.name "Java-AI-Agent"
+              git config --global user.email "ai-agent@github.com"
+              git add CHANGELOG.md
+              git commit -m "docs: Java AI auto-generated changelog for PR #${{ github.event.pull_request.number }}"
+              git push origin main

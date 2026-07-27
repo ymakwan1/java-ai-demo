@@ -40,7 +40,7 @@ jobs:
         run: |
           DIFF_CONTENT=$(cat java_changes.diff | head -c 25000)
           
-          llm -m llama-3.1-8b-instant "You are an expert Java Architect. 
+          llm -m groq/llama-3.1-8b-instant "You are an expert Java Architect. 
           Review the following git diff of a Java project. 
           Write a concise, bulleted update for our technical CHANGELOG.md file.
           Format the output clearly as a markdown bulleted list.

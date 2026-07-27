@@ -2,6 +2,24 @@
 
 ## 2026-07-27
 
+**Commit:** 34a5850
+
+**Files changed:**
+
+## Added
+- Added methods: UserService, buildSummary, count, createUser, delete, findAll, findById, findUsers, getActiveUsers, getUserNames ...
+- Introduced new behavior such as creation, lookup, filtering, pagination, or state-management flows.
+- Added new Java types or API surface to support the requested behavior change.
+
+## Changed
+- Improved concurrency, collection handling, or execution flow for better reliability.
+
+## Fixed
+- Strengthened validation and error handling around edge cases and invalid input.
+# CHANGELOG
+
+## 2026-07-27
+
 **Commit:** da378ff
 
 **Files changed:**

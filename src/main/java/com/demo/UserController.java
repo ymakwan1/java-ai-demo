@@ -83,6 +83,32 @@ public class UserController {
         return new ArrayList<>(users.subList(fromIndex, toIndex));
     }
 
+    public List<User> getRecentlyActiveUsers(int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("Limit must be 1 or greater");
+        }
+
+        return userStore.values()
+                .stream()
+                .filter(User::isActive)
+                .limit(limit)
+                .sorted(Comparator.comparing(User::getName, String.CASE_INSENSITIVE_ORDER))
+                .collect(Collectors.toList());
+    }
+
+    public User toggleUserStatus(int id) {
+        User user = getUserById(id);
+        user.setActive(!user.isActive());
+        auditService.log("Toggled user status for user " + id);
+        return user;
+    }
+
+    public boolean hasEmailConflict(String email, Integer excludeId) {
+        String normalized = normalizeEmail(email);
+        return userStore.values().stream()
+                .anyMatch(user -> user.getId() != excludeId && normalizeEmail(user.getEmail()).equals(normalized));
+    }
+
     public User getUserById(int id) {
         auditService.log("Fetching user " + id);
 
@@ -124,6 +150,10 @@ public class UserController {
     public User createUser(String name, String email, boolean active) {
         validateUserInput(name, email);
 
+        if (hasEmailConflict(email, null)) {
+            throw new IllegalArgumentException("Email already exists");
+        }
+
         int id = nextId();
         User user = new User(id, name.trim(), normalizeEmail(email), active);
         userStore.put(id, user);
@@ -153,6 +183,10 @@ public class UserController {
     public User updateUser(int id, String name, String email, Boolean active) {
         User existing = getUserById(id);
         validateUserInput(name, email);
+
+        if (hasEmailConflict(email, id)) {
+            throw new IllegalArgumentException("Email already exists");
+        }
 
         existing.setName(name.trim());
         existing.setEmail(normalizeEmail(email));

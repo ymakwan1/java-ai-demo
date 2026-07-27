@@ -87,22 +87,66 @@ jobs:
           def sanitize(text: str) -> str:
               return re.sub(r"\s+", " ", text).strip()
 
+          def extract_methods(diff_text: str):
+              added = []
+              removed = []
+              changed = []
+
+              for line in diff_text.splitlines():
+                  stripped = line.strip()
+                  if not stripped or stripped.startswith("@@") or stripped.startswith("diff --git") or stripped.startswith("index "):
+                      continue
+
+                  if stripped.startswith("+") and not stripped.startswith("+++"):
+                      code = stripped[1:].lstrip()
+                      if code.startswith("//") or code.startswith("/*") or code.startswith("*"):
+                          continue
+                      method_match = re.search(r"\b(?:public|protected|private|static|final|synchronized|default)\b.*?\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", code)
+                      if method_match:
+                          added.append(method_match.group(1))
+                  elif stripped.startswith("-") and not stripped.startswith("---"):
+                      code = stripped[1:].lstrip()
+                      if code.startswith("//") or code.startswith("/*") or code.startswith("*"):
+                          continue
+                      method_match = re.search(r"\b(?:public|protected|private|static|final|synchronized|default)\b.*?\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", code)
+                      if method_match:
+                          removed.append(method_match.group(1))
+
+              added_unique = sorted(set(added))
+              removed_unique = sorted(set(removed))
+              changed_unique = sorted(set(added_unique) & set(removed_unique))
+              added_only = sorted(set(added_unique) - set(changed_unique))
+              removed_only = sorted(set(removed_unique) - set(changed_unique))
+
+              return {
+                  "added": added_only,
+                  "changed": changed_unique,
+                  "removed": removed_only,
+              }
+
           def build_fallback_markdown() -> str:
               added = []
               changed = []
               removed = []
               fixed = []
 
-              if re.search(r"^\+.*\b(class|interface|enum|record)\b", diff_text, flags=re.MULTILINE):
-                  added.append("- Added new Java types or API surface to support the requested behavior change.")
-              if re.search(r"^\+.*\b(create|update|deactivate|validate|fetch|log|audit)\b", diff_text, flags=re.MULTILINE | re.IGNORECASE):
-                  changed.append("- Updated runtime behavior and business logic for the affected Java components.")
+              methods = extract_methods(diff_text)
+              if methods["added"]:
+                  added.append(f"- Added methods: {', '.join(methods['added'][:10])}{' ...' if len(methods['added']) > 10 else ''}")
+                  added.append("- Introduced new behavior such as creation, lookup, filtering, pagination, or state-management flows.")
+              if methods["changed"]:
+                  changed.append(f"- Updated methods: {', '.join(methods['changed'][:10])}{' ...' if len(methods['changed']) > 10 else ''}")
+                  changed.append("- Adjusted existing logic for validation, state transitions, error handling, or data access behavior.")
+              if methods["removed"]:
+                  removed.append(f"- Removed methods: {', '.join(methods['removed'][:10])}{' ...' if len(methods['removed']) > 10 else ''}")
+                  removed.append("- Simplified or retired obsolete behavior that is no longer part of the implementation.")
+
               if re.search(r"\b(exception|error|invalid|null|guard|validate|throw)\b", diff_text, flags=re.IGNORECASE):
                   fixed.append("- Strengthened validation and error handling around edge cases and invalid input.")
-              if re.search(r"^-.+\b(class|interface|enum|record)\b", diff_text, flags=re.MULTILINE):
-                  removed.append("- Removed deprecated or obsolete logic paths from the implementation.")
               if re.search(r"\b(concurrent|thread|lock|stream|comparator|cache|async)\b", diff_text, flags=re.IGNORECASE):
                   changed.append("- Improved concurrency, collection handling, or execution flow for better reliability.")
+              if re.search(r"^\+.*\b(class|interface|enum|record)\b", diff_text, flags=re.MULTILINE):
+                  added.append("- Added new Java types or API surface to support the requested behavior change.")
               if not added and not changed and not removed and not fixed:
                   changed.append("- Updated Java implementation to support the latest behavior and maintenance changes.")
 
@@ -126,6 +170,11 @@ jobs:
               prompt = f"""You are a Senior Java Software Architect reviewing enterprise changes.
 
               Review the following git diff and generate a concise but professional Markdown changelog.
+              Focus heavily on method-level detail. For every added, changed, or removed method, name the method and describe what behavior changed.
+              Prefer bullets such as:
+              - Added method createUser(String, String, boolean): now validates input, normalizes email, and creates a fully initialized user.
+              - Changed method getUsers(): now filters inactive accounts and sorts results by name.
+              - Removed method deactivateUsers(List<Integer>): retired a bulk deactivation flow that is no longer part of the API.
               Only include sections that have content. Prefer actionable summaries over file-by-file lists.
 
               Output ONLY Markdown content with headings and bullet points.

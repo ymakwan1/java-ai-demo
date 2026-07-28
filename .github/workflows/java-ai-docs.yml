@@ -87,42 +87,118 @@ jobs:
           def sanitize(text: str) -> str:
               return re.sub(r"\s+", " ", text).strip()
 
-          def extract_methods(diff_text: str):
-              added = []
-              removed = []
-              changed = []
+          def extract_method_signature(line: str):
+              cleaned = line.strip()
+              if not cleaned or cleaned.startswith("//") or cleaned.startswith("/*") or cleaned.startswith("*"):
+                  return None
+              match = re.search(r"\b(?:public|protected|private|static|final|synchronized|default|abstract)\b.*?\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", cleaned)
+              if match:
+                  return match.group(1)
+              return None
+
+          def summarize_change(additions, removals):
+              combined = " ".join(additions + removals).lower()
+              keyword_map = {
+                  "validate": "validation",
+                  "email": "email handling",
+                  "active": "status handling",
+                  "filter": "filtering",
+                  "sort": "sorting",
+                  "page": "pagination",
+                  "search": "search behavior",
+                  "stats": "statistics",
+                  "toggle": "state toggling",
+                  "bulk": "bulk operations",
+                  "log": "audit logging",
+                  "count": "counting",
+                  "save": "persistence",
+                  "find": "lookup",
+                  "create": "creation",
+                  "update": "updates",
+                  "deactivate": "deactivation",
+                  "reactivate": "reactivation",
+                  "throw": "error handling",
+                  "normalize": "normalization",
+                  "conflict": "conflict checks",
+                  "limit": "limiting results",
+              }
+              matched = []
+              for keyword, phrase in keyword_map.items():
+                  if keyword in combined:
+                      matched.append(phrase)
+              if matched:
+                  return ", ".join(matched[:4])
+              return "behavior and control flow"
+
+          def build_fine_grained_summary(diff_text: str) -> str:
+              per_file = {}
+              current_file = None
+              current_hunk = None
+              current_method = None
+              hunk_lines = []
+
+              def flush_hunk():
+                  nonlocal current_file, current_method, hunk_lines
+                  if not current_file or not hunk_lines:
+                      return
+                  added = [line[1:].strip() for line in hunk_lines if line.startswith("+") and not line.startswith("+++")]
+                  removed = [line[1:].strip() for line in hunk_lines if line.startswith("-") and not line.startswith("---")]
+                  if not added and not removed:
+                      hunk_lines = []
+                      return
+
+                  method_name = current_method or None
+                  if not method_name:
+                      for item in added + removed:
+                          method_name = extract_method_signature(item)
+                          if method_name:
+                              break
+                  if not method_name:
+                      method_name = "file-level logic"
+
+                  if added and removed:
+                      action = f"Updated method {method_name} in {current_file}: replaced logic around {summarize_change(added, removed)}."
+                  elif added:
+                      action = f"Added method {method_name} in {current_file}: introduces {summarize_change(added, removed)}."
+                  else:
+                      action = f"Removed method {method_name} from {current_file}: retired {summarize_change(added, removed)}."
+
+                  per_file.setdefault(current_file, []).append(action)
+                  hunk_lines = []
 
               for line in diff_text.splitlines():
-                  stripped = line.strip()
-                  if not stripped or stripped.startswith("@@") or stripped.startswith("diff --git") or stripped.startswith("index "):
-                      continue
+                  if line.startswith("diff --git "):
+                      flush_hunk()
+                      current_file = None
+                      current_method = None
+                      hunk_lines = []
+                      match = re.match(r"diff --git a/(.+) b/(.+)", line)
+                      if match:
+                          current_file = match.group(2)
+                  elif line.startswith("@@"):
+                      flush_hunk()
+                      current_hunk = line
+                      current_method = None
+                      hunk_lines = []
+                  elif current_file and line.startswith(("+", "-", " ")) and not line.startswith(("+++", "---")):
+                      content = line[1:].strip()
+                      if content:
+                          method_in_line = extract_method_signature(content)
+                          if method_in_line:
+                              current_method = method_in_line
+                      hunk_lines.append(line)
 
-                  if stripped.startswith("+") and not stripped.startswith("+++"):
-                      code = stripped[1:].lstrip()
-                      if code.startswith("//") or code.startswith("/*") or code.startswith("*"):
-                          continue
-                      method_match = re.search(r"\b(?:public|protected|private|static|final|synchronized|default)\b.*?\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", code)
-                      if method_match:
-                          added.append(method_match.group(1))
-                  elif stripped.startswith("-") and not stripped.startswith("---"):
-                      code = stripped[1:].lstrip()
-                      if code.startswith("//") or code.startswith("/*") or code.startswith("*"):
-                          continue
-                      method_match = re.search(r"\b(?:public|protected|private|static|final|synchronized|default)\b.*?\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", code)
-                      if method_match:
-                          removed.append(method_match.group(1))
+              flush_hunk()
 
-              added_unique = sorted(set(added))
-              removed_unique = sorted(set(removed))
-              changed_unique = sorted(set(added_unique) & set(removed_unique))
-              added_only = sorted(set(added_unique) - set(changed_unique))
-              removed_only = sorted(set(removed_unique) - set(changed_unique))
+              if not per_file:
+                  return "- No file-level method changes detected in this diff."
 
-              return {
-                  "added": added_only,
-                  "changed": changed_unique,
-                  "removed": removed_only,
-              }
+              lines = []
+              for file_path in sorted(per_file):
+                  lines.append(f"- File: {file_path}")
+                  for entry in per_file[file_path]:
+                      lines.append(f"  - {entry}")
+              return "\n".join(lines)
 
           def build_fallback_markdown() -> str:
               added = []
@@ -130,16 +206,9 @@ jobs:
               removed = []
               fixed = []
 
-              methods = extract_methods(diff_text)
-              if methods["added"]:
-                  added.append(f"- Added methods: {', '.join(methods['added'][:10])}{' ...' if len(methods['added']) > 10 else ''}")
-                  added.append("- Introduced new behavior such as creation, lookup, filtering, pagination, or state-management flows.")
-              if methods["changed"]:
-                  changed.append(f"- Updated methods: {', '.join(methods['changed'][:10])}{' ...' if len(methods['changed']) > 10 else ''}")
-                  changed.append("- Adjusted existing logic for validation, state transitions, error handling, or data access behavior.")
-              if methods["removed"]:
-                  removed.append(f"- Removed methods: {', '.join(methods['removed'][:10])}{' ...' if len(methods['removed']) > 10 else ''}")
-                  removed.append("- Simplified or retired obsolete behavior that is no longer part of the implementation.")
+              detailed_summary = build_fine_grained_summary(diff_text)
+              if detailed_summary:
+                  changed.append("- Detailed diff summary: " + detailed_summary.replace("\n", " | "))
 
               if re.search(r"\b(exception|error|invalid|null|guard|validate|throw)\b", diff_text, flags=re.IGNORECASE):
                   fixed.append("- Strengthened validation and error handling around edge cases and invalid input.")
@@ -170,11 +239,12 @@ jobs:
               prompt = f"""You are a Senior Java Software Architect reviewing enterprise changes.
 
               Review the following git diff and generate a concise but professional Markdown changelog.
-              Focus heavily on method-level detail. For every added, changed, or removed method, name the method and describe what behavior changed.
+              Focus heavily on method-level and file-level detail. For every added, changed, or removed method, name the method, name the file it appears in, and describe what behavior changed.
               Prefer bullets such as:
-              - Added method createUser(String, String, boolean): now validates input, normalizes email, and creates a fully initialized user.
-              - Changed method getUsers(): now filters inactive accounts and sorts results by name.
-              - Removed method deactivateUsers(List<Integer>): retired a bulk deactivation flow that is no longer part of the API.
+              - Added method createUser(String, String, boolean) in src/main/java/com/demo/UserController.java: now validates input, normalizes email, and creates a fully initialized user.
+              - Changed method getUsers() in src/main/java/com/demo/UserController.java: now filters inactive accounts and sorts results by name.
+              - Removed method deactivateUsers(List<Integer>) from src/main/java/com/demo/UserController.java: retired a bulk deactivation flow that is no longer part of the API.
+              If a method already exists and the logic changed, describe what replacement or refinement occurred in the implementation.
               Only include sections that have content. Prefer actionable summaries over file-by-file lists.
 
               Output ONLY Markdown content with headings and bullet points.

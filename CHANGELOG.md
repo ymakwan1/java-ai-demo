@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 2026-07-28
+
+**Commit:** 81f3907
+
+**Files changed:**
+
+## Changed
+- Detailed diff summary: - File: src/main/java/com/demo/UserController.java |   - Added method getRecentlyActiveUsers in src/main/java/com/demo/UserController.java: introduces status handling, sorting, pagination. |   - Added method createUsers in src/main/java/com/demo/UserController.java: introduces validation, email handling, status handling, audit logging. |   - Added method getUserReport in src/main/java/com/demo/UserController.java: introduces status handling, filtering, audit logging. | - File: src/main/java/com/demo/UserService.java |   - Added method getUserNames in src/main/java/com/demo/UserService.java: introduces status handling, counting.
+- Improved concurrency, collection handling, or execution flow for better reliability.
+
+## Fixed
+- Strengthened validation and error handling around edge cases and invalid input.
+# CHANGELOG
+
 ## 2026-07-27
 
 **Commit:** 34a5850

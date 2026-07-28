@@ -38,4 +38,10 @@ public class UserService {
                 .map(UserController.User::getName)
                 .collect(Collectors.toList());
     }
+
+    public List<String> getUserEmails() {
+        return userController.getUsers().stream()
+                .map(UserController.User::getEmail)
+                .collect(Collectors.toList());
+    }
 }

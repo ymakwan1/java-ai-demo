@@ -27,6 +27,12 @@ public class UserService {
         return "Service has " + userController.getUserCount() + " users and " + userController.getActiveUserCount() + " active users";
     }
 
+    public String buildDetailedSummary() {
+        return "Service summary: total=" + userController.getUserCount()
+                + ", active=" + userController.getActiveUserCount()
+                + ", inactive=" + userController.getInactiveUserCount();
+    }
+
     public List<String> getUserNames() {
         return userController.getUsers().stream()
                 .map(UserController.User::getName)

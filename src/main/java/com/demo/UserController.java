@@ -83,6 +83,22 @@ public class UserController {
         return new ArrayList<>(users.subList(fromIndex, toIndex));
     }
 
+    public List<User> getUsersPageWithSort(int page, int pageSize, boolean descending) {
+        List<User> users = getUsersIncludingInactive();
+        if (descending) {
+            users.sort(Comparator.comparing(User::getName, String.CASE_INSENSITIVE_ORDER).reversed());
+        } else {
+            users.sort(Comparator.comparing(User::getName, String.CASE_INSENSITIVE_ORDER));
+        }
+
+        int fromIndex = (page - 1) * pageSize;
+        int toIndex = Math.min(fromIndex + pageSize, users.size());
+        if (fromIndex >= users.size()) {
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(users.subList(fromIndex, toIndex));
+    }
+
     public List<User> getRecentlyActiveUsers(int limit) {
         if (limit < 1) {
             throw new IllegalArgumentException("Limit must be 1 or greater");
@@ -162,6 +178,16 @@ public class UserController {
         return user;
     }
 
+    public User createUserWithMetadata(String name, String email, boolean active, String metadata) {
+        validateUserInput(name, email);
+        if (isBlank(metadata)) {
+            throw new IllegalArgumentException("Metadata is required");
+        }
+        User user = createUser(name, email, active);
+        auditService.log("Attached metadata to user " + user.getId());
+        return user;
+    }
+
     public List<User> createUsers(List<String> names, List<String> emails) {
         if (names == null || emails == null || names.size() != emails.size()) {
             throw new IllegalArgumentException("Names and emails must be provided in matching pairs");
@@ -219,6 +245,12 @@ public class UserController {
         User user = getUserById(id);
         user.setActive(true);
         auditService.log("Reactivated user " + id);
+    }
+
+    public void archiveInactiveUsers() {
+        userStore.values().stream()
+                .filter(user -> !user.isActive())
+                .forEach(user -> auditService.log("Archived inactive user " + user.getId()));
     }
 
     public String getUserReport() {

@@ -208,7 +208,8 @@ jobs:
 
               detailed_summary = build_fine_grained_summary(diff_text)
               if detailed_summary:
-                  changed.append("- Detailed diff summary: " + detailed_summary.replace("\n", " | "))
+                  summary_lines = ["- Detailed diff summary:"] + ["  " + line if line.startswith("- ") else "  " + line for line in detailed_summary.splitlines()]
+                  changed.extend(summary_lines)
 
               if re.search(r"\b(exception|error|invalid|null|guard|validate|throw)\b", diff_text, flags=re.IGNORECASE):
                   fixed.append("- Strengthened validation and error handling around edge cases and invalid input.")
